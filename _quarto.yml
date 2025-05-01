@@ -1,8 +1,7 @@
-title: "Lab 10: Distances and Projections"
-subtitle: 'Distance from the Border Zone'
-author:
-  - name: Avery Eastman
-    email: avery.eastman@icloud.com
+project: 
+  title: "Lab 10: Distances and Projections"
+  output-dir: docs
+  type: website
 
 format: 
   html:

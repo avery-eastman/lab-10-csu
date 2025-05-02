@@ -10,7 +10,7 @@ execute:
   echo: true
 ---
 
-```{r}
+```{r, message=FALSE, warning=FALSE}
 # spatial data science
 library(tidyverse)
 library(sf)
@@ -32,7 +32,7 @@ library(knitr)
 
 #### For this lab we want to calculate distances between features, therefore we need a projection that preserves distance at the scale of CONUS. For this, we will use the North America Equidistant Conic:
 
-```{r}
+```{r, message=FALSE, warning=FALSE}
 eqdc <- '+proj=eqdc +lat_0=40 +lon_0=-96 +lat_1=20 +lat_2=60 +x_0=0 +y_0=0 +datum=NAD83 +units=m +no_defs'
 ```
 
@@ -40,7 +40,7 @@ eqdc <- '+proj=eqdc +lat_0=40 +lon_0=-96 +lat_1=20 +lat_2=60 +x_0=0 +y_0=0 +datu
 
 #### In R, USA boundaries are stored in the AOI package. USA state boundaries can be accessed with aoi_get(state = 'conus'). Make sure the data is in a projected coordinate system suitable for distance measurements at the national scale (eqdc)
 
-```{r}
+```{r, message=FALSE, warning=FALSE}
 conus_states <- aoi_get(state = "conus")
 
 conus_states_proj <- st_transform(conus_states, crs = eqdc)
@@ -50,7 +50,7 @@ conus_states_proj <- st_transform(conus_states, crs = eqdc)
 
 #### In R, country boundaries are stored in the AOI package. Country boundaries can be accessed with aoi_get(country = c("MX", "CA", "USA")). Make sure the data is in a projected coordinate system suitable for distance measurements at the national scale (eqdc)
 
-```{r}
+```{r, message=FALSE, warning=FALSE}
 countries <- aoi_get(country = c("MX", "CA", "USA"))
 
 countries_proj <- st_transform(countries, crs = eqdc)
@@ -60,7 +60,7 @@ countries_proj <- st_transform(countries, crs = eqdc)
 
 #### Download the appropriate (free) dataset into the data directory of this project. Once downloaded, read it into your working session. Convert the data.frame to a spatial object using st_as_sf and prescribing the coordinate variables and CRS. Finally, remove cities in states not wanted and make sure the data is in a projected coordinate system suitable for distance measurements at the national scale
 
-```{r}
+```{r, message=FALSE, warning=FALSE}
 unzip("/Users/Avery/github/lab-10-csu/data/data.zip", exdir = "data/unzipped")
 library(readr)
 cities_data <- read_csv("/Users/Avery/github/lab-10-csu/data/unzipped/uscities.csv")
@@ -69,21 +69,23 @@ cities_sf <- st_as_sf(cities_data, coords = c("lng", "lat"), crs = 4326)
 
 cities_proj <- st_transform(cities_sf, crs = eqdc)
 
-cities_conus <- st_filter(cities_proj, countries_proj)
+cities_conus <- cities_proj |>
+  st_join(conus_states_proj, join = st_within) |>
+  filter(!is.na(name))
 ```
 
 # Question 2
 
 #### Here we will focus on calculating the distance of each USA city to (1) the national border (2) the nearest state border (3) the Mexican border and (4) the Canadian border. You will need to manipulate you existing spatial geometries to do this using either st_union or st_combine depending on the situation. In all cases, since we are after distances to borders, we will need to cast (st_cast) our MULTIPPOLYGON geometries to MULTILINESTRING geometries. To perform these distance calculations we will use st_distance()
 
-```{r}
+```{r, message=FALSE, warning=FALSE}
 library(dplyr)
 library(flextable)
 ```
 
 ### 2.1 - Distance to USA Border (coastline or national) (km)
 
-```{r}
+```{r, message=FALSE, warning=FALSE}
 usa_union <- st_union(conus_states_proj)
 # Checking my work
 plot(usa_union, col = "red")
@@ -91,103 +93,87 @@ usa_border <- st_cast(usa_union, "MULTILINESTRING")
 # Checking my work
 plot(usa_border, col = "red")
 
-cities_conus = mutate(cities_conus,
-                      dist_to_usa_border = st_distance(cities_conus, usa_border),
-                      dist_to_usa_border = set_units(dist_to_usa_border, "km"),
-                      dist_to_usa_border = drop_units(dist_to_usa_border))
+cities_conus <- cities_conus |>
+  mutate(dist_to_usa_border = st_distance(geometry, usa_border) |> 
+           set_units("km") |> 
+           drop_units())
 
-invisible(cities_conus$dist_to_usa_border)
-
-cities_far_from_border <- cities_conus |>
+cities_conus |>
   st_drop_geometry() |>
-  select(city, state_name, dist_to_usa_border) |>
+  select(city, name, dist_to_usa_border) |>
   arrange(desc(dist_to_usa_border)) |>
   slice_head(n = 5) |>
   flextable()
-cities_far_from_border
 ```
 
 ### 2.2 - Distance to States (km)
 
-```{r}
+```{r, message=FALSE, warning=FALSE}
 states_combined <- st_combine(conus_states_proj)
 plot(states_combined, col = "red")
 state_borders <- st_cast(states_combined, "MULTILINESTRING")
 plot(state_borders, col = "red")
 
-cities_conus = mutate(cities_conus,
-                      dist_to_states = st_distance(cities_conus, state_borders),
-                      dist_to_states = set_units(dist_to_states, "km"),
-                      dist_to_states = drop_units(dist_to_states))
+cities_conus <- cities_conus |>
+  mutate(dist_to_states = st_distance(geometry, state_borders) |> 
+           set_units("km") |> 
+           drop_units())
 
-invisible(cities_conus$dist_to_states)
-
-cities_far_from_state <- cities_conus |>
+cities_conus |>
   st_drop_geometry() |>
-  select(city, state_name, dist_to_states) |>
+  select(city, name, dist_to_states) |>
   arrange(desc(dist_to_states)) |>
-  slice_head(n = 5)|>
+  slice_head(n = 5) |>
   flextable()
-cities_far_from_state
 ```
 
 ### 2.3 - Distance to Mexico (km)
 
-```{r}
+```{r, message=FALSE, warning=FALSE}
 mexico <- countries_proj |>
-  filter(admin == "Mexico") |>
-  st_union()
-plot(mexico, col = "red")
-mexico_border <- st_cast(mexico, "MULTILINESTRING")
+  filter(admin == "Mexico")
+mexico_border <- st_cast(st_union(mexico), "MULTILINESTRING")
 plot(mexico_border, col = "red")
 
-cities_conus = mutate(cities_conus,
-                      dist_to_mexico = st_distance(cities_conus, mexico_border),
-                      dist_to_mexico = set_units(dist_to_mexico, "km"),
-                      dist_to_mexico = drop_units(dist_to_mexico))
+cities_conus <- cities_conus |>
+  mutate(dist_to_mexico = st_distance(geometry, mexico_border) |> 
+           set_units("km") |> 
+           drop_units())
 
-invisible(cities_conus$dist_to_mexico)
-
-cities_far_from_mexico <- cities_conus |>
+cities_conus |>
   st_drop_geometry() |>
-  select(city, state_name, dist_to_mexico) |>
+  select(city, name, dist_to_mexico) |>
   arrange(desc(dist_to_mexico)) |>
   slice_head(n = 5) |>
   flextable()
-cities_far_from_mexico
 ```
 
 ### 2.4 - Distance to Canada (km)
 
-```{r}
+```{r, message=FALSE, warning=FALSE}
 canada <- countries_proj |>
-  filter(admin == "Canada") |>
-  st_union()
-plot(canada, col = "red")
-canada_border <- st_cast(canada, "MULTILINESTRING")
+  filter(admin == "Canada")
+canada_border <- st_cast(st_union(canada), "MULTILINESTRING")
 plot(canada_border, col = "red")
 
-cities_conus = mutate(cities_conus,
-                      dist_to_canada = st_distance(cities_conus, canada_border),
-                      dist_to_canada = set_units(dist_to_canada, "km"),
-                      dist_to_canada = drop_units(dist_to_canada))
+cities_conus <- cities_conus |>
+  mutate(dist_to_canada = st_distance(geometry, canada_border) |> 
+           set_units("km") |> 
+           drop_units())
 
-invisible(cities_conus$dist_to_canada)
-
-cities_far_from_canada <- cities_conus |>
+cities_conus |>
   st_drop_geometry() |>
-  select(city, state_name, dist_to_canada) |>
+  select(city, name, dist_to_canada) |>
   arrange(desc(dist_to_canada)) |>
   slice_head(n = 5) |>
   flextable()
-cities_far_from_canada
 ```
 
 # Question 3
 
 #### In this section we will focus on visualizing the distance data you calculated above. You will be using ggplot to make your maps, ggrepl to label significant features, and gghighlight to emphasize important criteria
 
-```{r}
+```{r, message=FALSE, warning=FALSE}
 library(ggplot2)
 ```
 
@@ -195,20 +181,24 @@ library(ggplot2)
 
 #### Show the 3 continents, CONUS outline, state boundaries, and 10 largest USA cities (by population) on a single map. Use geom_sf to plot your layers. Use lty to change the line type and size to change line width. Use ggrepel::geom_label_repel to label your cities
 
-```{r}
+```{r, message=FALSE, warning=FALSE}
 top_10_usa_cities <- cities_conus |>
-  arrange(desc(population)) |>
-  slice_head(n = 10)
+  slice_max(population, n = 10)
+
+conus_outline <- aoi_get(state = "conus") |>
+  st_union() |>
+  st_sf() |>
+  st_transform(5070)
 
 ggplot() +
-  geom_sf(data = countries_proj, fill = "white", lty = 1, size = 1) +
-  geom_sf(data = conus_states_proj, fill = NA, lty = 1, size = 1) +
-  geom_sf(data = top_10_usa_cities, col = "red", size = 1) +
-  geom_label_repel(
-    data = top_10_usa_cities,
-    aes(label = city, geometry = geometry),
-    stat = "sf_coordinates",
-    size = 3) +
+  geom_sf(data = countries_proj, fill = "gray90", color = "gray70") +
+  geom_sf(data = conus_outline, fill = NA, color = "black", size = 1.2) +
+  geom_sf(data = conus_states_proj, fill = NA, color = "darkgray", lty = 2) +
+  geom_sf(data = top_10_usa_cities, color = "red", size = 1.5) +
+  ggrepel::geom_label_repel(data = top_10_usa_cities,
+                            aes(label = city, geometry = geometry),
+                            stat = "sf_coordinates",
+                            size = 3) +
   ggthemes::theme_map()
 ```
 
@@ -216,78 +206,69 @@ ggplot() +
 
 #### Create a map that colors USA cities by their distance from the national border. In addition, re-draw and label the 5 cities that are farthest from the border
 
-```{r}
+```{r, message=FALSE, warning=FALSE}
 top_5_cities_from_border <- cities_conus |>
-  arrange(desc(dist_to_usa_border)) |>
-  slice_head(n = 5)
+  slice_max(dist_to_usa_border, n = 5)
 
 ggplot() +
-  geom_sf(data = countries_proj, fill = "white", lty = 1, size = 1) +
-  geom_sf(data = conus_states_proj, fill = NA, col = "black", size = 0.5, lty = 1) +
-  geom_sf(data = cities_conus, aes(col = dist_to_usa_border), size = 1, alpha = 0.5) +
-  scale_color_viridis_c(name = "Distance to National Border (km)") +
-  geom_sf(data = top_5_cities_from_border, col = "red", size = 1) + 
-  geom_label_repel(
-    data = top_5_cities_from_border,
-    aes(label = city, geometry = geometry),
-    stat = "sf_coordinates",
-    size = 3) +
-  ggthemes::theme_map() +
-  theme(legend.position = "right")
+  geom_sf(data = conus_outline, fill = NA, color = "black", size = 4) +
+  geom_sf(data = conus_states_proj, fill = "gray90", color = "darkgray", size = 2) +
+  geom_sf(data = cities_conus, aes(color = as.numeric(dist_to_usa_border)), size = 1, alpha = 0.5) +
+  scale_color_viridis_c(name = "Distance to US Border (km)") +
+  geom_sf(data = top_5_cities_from_border, color = "red", size = 1) +
+  ggrepel::geom_label_repel(data = top_5_cities_from_border,
+                            aes(label = city, geometry = geometry),
+                            stat = "sf_coordinates",
+                            size = 3) +
+  ggthemes::theme_map() 
 ```
 
 ### 3.3 City Distance from Nearest State
 
 #### Create a map that colors USA cities by their distance from the nearest state border. In addition, re-draw and label the 5 cities that are farthest from any border
 
-```{r}
+```{r, message=FALSE, warning=FALSE}
 top_5_cities_from_states <- cities_conus |>
-  arrange(desc(dist_to_states)) |>
-  slice_head(n = 5)
+  slice_max(dist_to_states, n = 5)
 
 ggplot() +
-  geom_sf(data = countries_proj, fill = "white", lty = 1, size = 1) + 
-  geom_sf(data = conus_states_proj, fill = NA, color = "black", size = 0.5, lty = 1) +
-  geom_sf(data = cities_conus, aes(color = dist_to_states), size = 1, alpha = 0.5) +
+  geom_sf(data = conus_outline, fill = NA, color = "black", size = 4) +
+  geom_sf(data = conus_states_proj, fill = "gray90", color = "darkgray", size = 2) +
+  geom_sf(data = cities_conus, aes(color = as.numeric(dist_to_states)), size = 1, alpha = 0.5) +
   scale_color_viridis_c(name = "Distance to State Border (km)") +
   geom_sf(data = top_5_cities_from_states, color = "red", size = 1) +
-  geom_label_repel(
-    data = top_5_cities_from_states,
-    aes(label = city, geometry = geometry),
-    stat = "sf_coordinates",
-    size = 3) +
-  ggthemes::theme_map() +
-  theme(legend.position = "right")
+  ggrepel::geom_label_repel(data = top_5_cities_from_states,
+                            aes(label = city, geometry = geometry),
+                            stat = "sf_coordinates",
+                            size = 3) +
+  ggthemes::theme_map()
 ```
 
 ### 3.4 Equidistance boundary from Mexico and Canada
 
 #### Use gghighlight to identify the cities that are equal distance from the Canadian AND Mexican border (plus or minus) 100 km. In addition, label the five (5) most populous cites in this zone. Hint: (create a new variable that finds the absolute difference between the distance to Mexico and the distance to Canada)
 
-```{r}
+```{r, message=FALSE, warning=FALSE}
 cities_conus <- cities_conus |>
-  mutate(abs_diff_ca_mx = abs(dist_to_canada - dist_to_mexico))
+  mutate(abs_diff_ca_mx = abs(dist_to_mexico - dist_to_canada))
 zone <- cities_conus |>
   filter(as.vector(abs_diff_ca_mx) <= 100)
 
 top5_cities_in_zone <- zone |>
-  arrange(desc(population)) |>
-  slice_head(n = 5)
+  slice_max(population, n = 5)
 
 ggplot() +
-  geom_sf(data = countries_proj, fill = "white", lty = 1, size = 1) +
-  geom_sf(data = conus_states_proj, fill = NA, color = "black", size = 0.5, lty = 1) +
-  geom_sf(data = cities_conus, aes(color = abs_diff_ca_mx), size = 1, alpha = 0.5) +
-  gghighlight(as.vector(abs_diff_ca_mx) <= 100) +
-  scale_color_viridis_c(name = "Distance Difference (km)") +
-  geom_sf(data = top5_cities_in_zone, color = "red", size = 1) +
-  geom_label_repel(
-    data = top5_cities_in_zone,
-    aes(label = city, geometry = geometry),
-    stat = "sf_coordinates",
-    size = 3) +
-  ggthemes::theme_map() +
-  theme(legend.position = "right")
+  geom_sf(data = conus_outline, fill = NA, color = "black", size = 4) +
+  geom_sf(data = conus_states_proj, fill = NA, color = "darkgray", size = 2) +
+  geom_sf(data = cities_conus, aes(color = as.numeric(abs_diff_ca_mx)), size = 1, alpha = 0.5) +
+  gghighlight(as.vector(abs_diff_ca_mx) <= 100, label_key = city) +
+  geom_sf(data = top5_cities_in_zone, color = "red", size = 2) +
+  ggrepel::geom_label_repel(data = top5_cities_in_zone,
+                            aes(label = city, geometry = geometry),
+                            stat = "sf_coordinates",
+                            size = 3) +
+  scale_color_viridis_c(name = "|Dist Mexico - Canada| (km)") +
+  ggthemes::theme_map()
 ```
 
 # Question 4
@@ -298,23 +279,20 @@ ggplot() +
 
 #### Report the following as a table: How many cities are in this 100 mile zone? (100 miles \~ 160 kilometers) How many people live in a city within 100 miles of the border? What percentage of the total population is in this zone? Does it match the ACLU estimate in the link above?
 
-```{r}
+```{r, message=FALSE, warning=FALSE}
 cities_in_border_zone <- cities_conus |>
-  filter(dist_to_usa_border <= 160)
+  filter(as.vector(dist_to_usa_border) <= 160)
 
-total_cities <- nrow(cities_conus)
-total_pop <- sum(cities_conus$population)
 zone_cities <- nrow(cities_in_border_zone)
 zone_pop <- sum(cities_in_border_zone$population, na.rm = TRUE)
-
-percentage <- zone_pop / total_pop * 100 
+total_pop <- sum(cities_conus$population, na.rm = TRUE)
+percentage <- (zone_pop / total_pop) * 100 
 
 data.frame(
-  'Total Cities' = total_cities,
   'Cities in Border Zone' = zone_cities,
-  'Total Population' = total_pop,
   'Population in Border Zone' = zone_pop,
-  'Percent of Population in Border Zone' = round(percentage)
+  'Total Population' = total_pop,
+  'Percent of Population in Border Zone' = percentage
 ) |>
   flextable()
 ```
@@ -324,34 +302,57 @@ The article says about two-thirds of the US population lives within the 100 mile
 
 #### Make a map highlighting the cites within the 100 mile zone using gghighlight. Use a color gradient from ‘orange’ to ‘darkred’. Label the 10 most populous cities in the Danger Zone
 
-```{r}
+```{r, message=FALSE, warning=FALSE}
 top10_in_zone <- cities_in_border_zone |>
-  arrange(desc(population)) |>
-  slice_head(n = 10)
+  slice_max(population, n = 10)
 
 ggplot() +
-  geom_sf(data = countries_proj, fill = "white", lty = 1, size = 1) +
-  geom_sf(data = conus_states_proj, fill = NA, color = "black", size = 0.5, lty = 1) +
-  geom_sf(data = cities_conus, aes(col = dist_to_usa_border), size = 1, alpha = 0.5) +
-  gghighlight(dist_to_usa_border <= 160) +
-  scale_color_gradient(low = "orange", high = "darkred", name = "Population") +
-  geom_sf(data = top10_in_zone, color = "red", size = 1) +
+  geom_sf(data = conus_outline, fill = NA, color = "black", size = 4) +
+  geom_sf(data = conus_states_proj, fill = NA, color = "darkgray", size = 2) +
+  geom_sf(data = cities_conus, aes(color = as.numeric(dist_to_usa_border)), size = 1, alpha = 0.5) +
+  gghighlight(dist_to_usa_border <= 160, use_direct_label = FALSE) +
+  scale_color_gradient(low = "orange", high = "darkred") +
+  geom_sf(data = top10_in_zone, color = "red", size = 2) +
   geom_label_repel(
     data = top10_in_zone,
     aes(label = city, geometry = geometry),
     stat = "sf_coordinates",
     size = 3) +
+  labs(color = "Distance to US Border (km)",
+       x = "Longitude",
+       y = "Latitude")
   ggthemes::theme_map() +
   theme(legend.position = "right")
 ```
 
 ### 4.3 : Instead of labeling the 10 most populous cites, label the most populous city in each state within the Danger Zone
 
-```{r}
-most_pop_cities <- cities_in_border_zone |>
-  group_by(state_name) |>
-  filter(population == max(population, na.rm = TRUE)) |>
+```{r, message=FALSE, warning=FALSE}
+most_pop_cities_in_zone <- cities_in_border_zone |>
+  group_by(name) |>
+  slice_max(population, n = 1) |>
   ungroup()
+
+ggplot() +
+  geom_sf(data = conus_outline, fill = NA, color = "black", size = 4) +
+  geom_sf(data = conus_states_proj, fill = NA, color = "darkgray", size = 2) +
+  geom_sf(data = cities_conus, aes(color = as.numeric(dist_to_usa_border)), size = 1, alpha = 0.5) +
+  gghighlight(dist_to_usa_border <= 160, use_direct_label = FALSE) +
+  scale_color_gradient(low = "orange", high = "darkred") +
+  geom_sf(data = most_pop_cities_in_zone, color = "red", size = 2) +
+  geom_label_repel(
+    data = most_pop_cities_in_zone,
+    aes(label = city, geometry = geometry),
+    stat = "sf_coordinates",
+    size = 3,
+    max.overlaps = Inf) +
+  labs(color = "Distance to US Border (km)",
+       x = "Longitude",
+       y = "Latitude")
+  ggthemes::theme_map() +
+  theme(legend.position = "right")
+
+
 
 ggplot() +
   geom_sf(data = countries_proj, fill = "white", lty = 1, size = 1) +

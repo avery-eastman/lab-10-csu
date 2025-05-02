@@ -351,25 +351,4 @@ ggplot() +
        y = "Latitude")
   ggthemes::theme_map() +
   theme(legend.position = "right")
-
-
-
-ggplot() +
-  geom_sf(data = countries_proj, fill = "white", lty = 1, size = 1) +
-  geom_sf(data = conus_states_proj, fill = NA, color = "black", size = 0.5, lty = 1) +
-  geom_sf(data = cities_conus, aes(col = dist_to_usa_border), size = 1, alpha = 0.5) +
-  gghighlight(dist_to_usa_border <= 160) +
-  scale_color_gradient(low = "orange", high = "darkred", name = "Population") +
-  geom_sf(data = most_pop_cities, color = "red", size = 1) +
-  geom_label_repel(
-    data = most_pop_cities,
-    aes(label = city, geometry = geometry),
-    stat = "sf_coordinates",
-    size = 3,
-    max.overlaps = Inf) +
-  ggthemes::theme_map() +
-  theme(legend.position = "right")
 ```
-
-
-
